@@ -47,6 +47,11 @@ async function handleChatCompletions(openaiBody) {
     throw new Error("VERTEX_API_TOKEN not set — vertexAuth.js may not have refreshed yet");
   }
 
+  // Strip fields that vLLM rejects when stream is not true
+  if (!openaiBody.stream) {
+    delete openaiBody.stream_options;
+  }
+
   // Build Vertex AI instances wrapper
   const instance = { "@requestFormat": "chatCompletions" };
   for (const [key, value] of Object.entries(openaiBody)) {
