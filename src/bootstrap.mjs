@@ -290,7 +290,7 @@ function patchOpenClawJson() {
   }
 
   // AI_MODEL env var overrides the provider default (used by fleet deployments)
-  // HARDCODED: Always use Qwen 3.5 35B A3B via Vertex AI dedicated endpoint.
+  // HARDCODED: Always use Gemma 4 31B IT via Vertex AI dedicated endpoint.
   // Vertex AI dedicated endpoints expose an OpenAI-compatible API.
   // Auth: GCP service account token, auto-refreshed via vertexAuth.js.
   const HARDCODED_MODEL = "vertex/gemma-4-31b-it";
@@ -321,7 +321,7 @@ function patchOpenClawJson() {
     console.log("[bootstrap] DeepSeek provider configured with V3 and R1 models");
   }
 
-  // Register Qwen3.5 model with Vertex AI provider (self-hosted vLLM on GCP).
+  // Register Gemma 4 model with Vertex AI provider (self-hosted vLLM on GCP).
   // Uses a local proxy (vertexProxy.js) that translates OpenAI format to Vertex AI
   // rawPredict format. The proxy runs on 127.0.0.1:7199 and handles auth internally.
   // VERTEX_PROXY_URL is set by gateway.js when the proxy starts.

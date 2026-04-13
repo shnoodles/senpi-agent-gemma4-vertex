@@ -1,34 +1,17 @@
 {
   "shared": {
     "setup_password": "your-shared-password-here",
-    "together_api_key": "your-together-api-key-here"
+    "vertex_project": "your-gcp-project-id",
+    "vertex_sa_key": "your-gcp-service-account-key"
   },
   "agents": [
     {
-      "name": "senpi-qwen35-9b",
+      "name": "senpi-gemma4-31b",
       "project_id": "",
-      "ai_provider": "together",
-      "model": "together/Qwen/Qwen3.5-9B",
+      "ai_provider": "vertex",
+      "model": "vertex/gemma-4-31b-it",
       "senpi_auth_token": "SENPI_TOKEN_1_HERE",
       "telegram_bot_token": "BOT_TOKEN_1_HERE",
-      "telegram_userid": "YOUR_TELEGRAM_ID"
-    },
-    {
-      "name": "senpi-qwen35-27b",
-      "project_id": "",
-      "ai_provider": "together",
-      "model": "together/Qwen/Qwen3.5-27B",
-      "senpi_auth_token": "SENPI_TOKEN_2_HERE",
-      "telegram_bot_token": "BOT_TOKEN_2_HERE",
-      "telegram_userid": "YOUR_TELEGRAM_ID"
-    },
-    {
-      "name": "senpi-qwen35-397b-a17b",
-      "project_id": "",
-      "ai_provider": "together",
-      "model": "together/ignas_efa0/Qwen/Qwen3.5-397B-A17B-FP8-8a24aaa2",
-      "senpi_auth_token": "SENPI_TOKEN_3_HERE",
-      "telegram_bot_token": "BOT_TOKEN_3_HERE",
       "telegram_userid": "YOUR_TELEGRAM_ID"
     }
   ]

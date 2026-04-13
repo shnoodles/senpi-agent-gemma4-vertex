@@ -23,7 +23,7 @@ const VERTEX_PROXY_PORT = parseInt(process.env.VERTEX_PROXY_PORT || "7199", 10);
 // Vertex AI endpoint config
 const VERTEX_PROJECT = process.env.VERTEX_PROJECT || "vertex-test-492617";
 const VERTEX_LOCATION = process.env.VERTEX_LOCATION || "us-central1";
-const VERTEX_ENDPOINT_ID = process.env.VERTEX_ENDPOINT_ID || "mg-endpoint-9b2a3306-a284-4942-b51d-87dee5d4b7c5";
+const VERTEX_ENDPOINT_ID = process.env.VERTEX_ENDPOINT_ID || "mg-endpoint-f7db8545-2b55-4aff-b9b4-fcb26209917d";
 
 // Dedicated DNS — uses dedicated domain instead of shared aiplatform.googleapis.com.
 // Same API path and format, just different hostname. Bypasses the "use dedicated DNS" error.
@@ -47,20 +47,32 @@ async function handleChatCompletions(openaiBody) {
     throw new Error("VERTEX_API_TOKEN not set — vertexAuth.js may not have refreshed yet");
   }
 
-  // Strip fields that vLLM rejects when stream is not true
-  if (!openaiBody.stream) {
-    delete openaiBody.stream_options;
-  }
+  // Always strip stream and stream_options — rawPredict doesn't support
+  // streaming, and Vertex AI may strip stream but leave stream_options,
+  // causing vLLM to reject with a validation error.
+  const wantsStream = !!openaiBody.stream;
+  delete openaiBody.stream;
+  delete openaiBody.stream_options;
+  // Strip non-standard fields that vLLM doesn't understand
+  delete openaiBody.store;
 
   // Build Vertex AI instances wrapper
   const instance = { "@requestFormat": "chatCompletions" };
   for (const [key, value] of Object.entries(openaiBody)) {
-    if (key !== "model") instance[key] = value;
+    if (key !== "model" && key !== "stream" && key !== "stream_options") {
+      instance[key] = value;
+    }
   }
 
   const url = getRawPredictUrl();
   const shortUrl = VERTEX_DEDICATED_DNS ? `dedicated-dns/${VERTEX_ENDPOINT_ID}` : VERTEX_ENDPOINT_ID;
+  const startTime = Date.now();
   console.log(`[vertex-proxy] → rawPredict: ${shortUrl}`);
+  console.log(`[vertex-proxy] Request keys: ${Object.keys(instance).join(", ")}`);
+
+  // 120s timeout to avoid infinite hangs
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120000);
 
   let res;
   try {
@@ -71,10 +83,19 @@ async function handleChatCompletions(openaiBody) {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ instances: [instance] }),
+      signal: controller.signal,
     });
   } catch (fetchErr) {
+    clearTimeout(timeout);
+    if (fetchErr.name === "AbortError") {
+      throw new Error(`rawPredict timed out after 120s`);
+    }
     throw new Error(`rawPredict network error: ${fetchErr.cause?.code || fetchErr.cause?.message || fetchErr.message}`);
   }
+  clearTimeout(timeout);
+
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.log(`[vertex-proxy] ← response: ${res.status} (${elapsed}s)`);
 
   const text = await res.text();
   if (!res.ok) {
@@ -83,7 +104,61 @@ async function handleChatCompletions(openaiBody) {
 
   // Unwrap: Vertex AI wraps the response in {"predictions": {...}}
   const parsed = JSON.parse(text);
-  return parsed.predictions || parsed;
+  const result = parsed.predictions || parsed;
+
+  // Clean up response for OpenClaw compatibility:
+  // - Remove empty tool_calls arrays (confuses some clients)
+  // - Log first choice content for debugging
+  if (result?.choices) {
+    for (const choice of result.choices) {
+      if (choice?.message) {
+        // Remove empty tool_calls array
+        if (Array.isArray(choice.message.tool_calls) && choice.message.tool_calls.length === 0) {
+          delete choice.message.tool_calls;
+        }
+        // Remove null fields that might confuse parsers
+        for (const key of ["refusal", "annotations", "audio", "function_call", "reasoning"]) {
+          if (choice.message[key] === null) {
+            delete choice.message[key];
+          }
+        }
+      }
+    }
+    const firstContent = result.choices[0]?.message?.content || "";
+    const hasTool = !!result.choices[0]?.message?.tool_calls;
+    console.log(`[vertex-proxy] ✓ ${elapsed}s | tools=${hasTool} | content=${firstContent.slice(0, 80).replace(/\n/g, "\\n")}...`);
+  } else {
+    console.log(`[vertex-proxy] ✓ ${elapsed}s | unexpected shape: ${Object.keys(result).join(",")}`);
+  }
+
+  return { result, wantsStream };
+}
+
+/**
+ * Convert a non-streaming chat completion to SSE format.
+ * This is needed when OpenClaw requests streaming but rawPredict only
+ * returns non-streaming responses.
+ */
+function completionToSSE(completion) {
+  // Convert the completion to a streaming chunk format
+  const chunk = {
+    id: completion.id,
+    object: "chat.completion.chunk",
+    created: completion.created,
+    model: completion.model,
+    choices: (completion.choices || []).map((c) => ({
+      index: c.index,
+      delta: {
+        role: c.message?.role,
+        content: c.message?.content || "",
+        ...(c.message?.tool_calls ? { tool_calls: c.message.tool_calls } : {}),
+      },
+      finish_reason: c.finish_reason,
+    })),
+    ...(completion.usage ? { usage: completion.usage } : {}),
+  };
+
+  return `data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`;
 }
 
 /**
@@ -94,7 +169,7 @@ function handleModels() {
     object: "list",
     data: [
       {
-        id: "qwen3.5-35b-a3b",
+        id: "gemma-4-31b-it",
         object: "model",
         owned_by: "vertex-ai",
         permission: [],
@@ -134,9 +209,21 @@ export function startVertexProxy() {
 
         try {
           const openaiRequest = JSON.parse(body);
-          const openaiResponse = await handleChatCompletions(openaiRequest);
-          res.writeHead(200);
-          res.end(JSON.stringify(openaiResponse));
+          const { result, wantsStream } = await handleChatCompletions(openaiRequest);
+
+          if (wantsStream) {
+            // Client wanted streaming — convert to SSE format
+            console.log(`[vertex-proxy] Converting to SSE (client requested stream)`);
+            res.writeHead(200, {
+              "Content-Type": "text/event-stream",
+              "Cache-Control": "no-cache",
+              Connection: "keep-alive",
+            });
+            res.end(completionToSSE(result));
+          } else {
+            res.writeHead(200);
+            res.end(JSON.stringify(result));
+          }
         } catch (err) {
           console.error("[vertex-proxy] Error:", err.message);
           res.writeHead(502);
