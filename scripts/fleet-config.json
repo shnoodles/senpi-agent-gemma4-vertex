@@ -1,0 +1,34 @@
+{
+  "shared": {
+    "setup_password": "CHANGE_ME_BEFORE_DEPLOY"
+  },
+  "agents": [
+    {
+      "name": "senpi-kimi-k25",
+      "ai_provider": "moonshot",
+      "ai_api_key": "MOONSHOT_API_KEY_HERE",
+      "model": "moonshot/kimi-k2.5",
+      "senpi_auth_token": "SENPI_TOKEN_1_HERE",
+      "telegram_bot_token": "BOT_TOKEN_1_HERE",
+      "telegram_userid": "YOUR_TELEGRAM_ID"
+    },
+    {
+      "name": "senpi-deepseek-v3",
+      "ai_provider": "deepseek",
+      "ai_api_key": "DEEPSEEK_API_KEY_HERE",
+      "model": "deepseek/deepseek-chat",
+      "senpi_auth_token": "SENPI_TOKEN_2_HERE",
+      "telegram_bot_token": "BOT_TOKEN_2_HERE",
+      "telegram_userid": "YOUR_TELEGRAM_ID"
+    },
+    {
+      "name": "senpi-gemma4-31b",
+      "ai_provider": "gemini",
+      "ai_api_key": "GEMINI_API_KEY_HERE",
+      "model": "google/gemma-4-31b-it",
+      "senpi_auth_token": "SENPI_TOKEN_3_HERE",
+      "telegram_bot_token": "BOT_TOKEN_3_HERE",
+      "telegram_userid": "YOUR_TELEGRAM_ID"
+    }
+  ]
+}
