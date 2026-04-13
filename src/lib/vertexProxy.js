@@ -2,29 +2,44 @@
  * Local Vertex AI proxy server.
  *
  * Runs an HTTP server on a local port that accepts OpenAI-compatible
- * chat/completions requests and forwards them to Vertex AI rawPredict,
- * wrapping/unwrapping the Vertex AI "instances" format.
+ * chat/completions requests and forwards them to the Vertex AI vLLM endpoint.
  *
- * This is needed because Vertex AI Model Garden dedicated endpoints have
- * a broken DNS proxy layer. The Google Cloud SDK (gRPC) bypasses this,
- * but OpenClaw needs a plain HTTP endpoint. This local proxy bridges
- * the gap using the rawPredict REST API with OAuth tokens from vertexAuth.js.
+ * Supports TWO modes (auto-detected):
+ *
+ * 1. DEDICATED DNS (preferred): When VERTEX_DEDICATED_DNS is set, calls the
+ *    dedicated endpoint directly with standard OpenAI format. No wrapping needed.
+ *    Example: https://<dedicated-dns>/v1/chat/completions
+ *
+ * 2. rawPredict (fallback): When no dedicated DNS, uses the shared Vertex AI
+ *    domain with rawPredict API, wrapping in instances format.
  *
  * Architecture:
  *   OpenClaw → http://127.0.0.1:{PORT}/v1/chat/completions (OpenAI format)
- *     → Vertex AI rawPredict (instances format)
+ *     → Dedicated DNS (direct OpenAI) OR rawPredict (instances wrapped)
  *     → vLLM container (GPU)
- *     → unwrapped OpenAI response back to OpenClaw
+ *     → response back to OpenClaw
  */
 
 import http from "node:http";
 
 const VERTEX_PROXY_PORT = parseInt(process.env.VERTEX_PROXY_PORT || "7199", 10);
 
-// Vertex AI rawPredict endpoint. Uses REST API (not gRPC) with OAuth token.
+// Vertex AI endpoint config
 const VERTEX_PROJECT = process.env.VERTEX_PROJECT || "vertex-test-492617";
 const VERTEX_LOCATION = process.env.VERTEX_LOCATION || "us-central1";
-const VERTEX_ENDPOINT_ID = process.env.VERTEX_ENDPOINT_ID || "mg-endpoint-5cb880c9-c56f-4d80-a8ed-028e809363c1";
+const VERTEX_ENDPOINT_ID = process.env.VERTEX_ENDPOINT_ID || "mg-endpoint-5efab3bd-c06e-4cd3-bb6d-3a26b0ea5f93";
+
+// Dedicated DNS — set this to skip rawPredict and call the endpoint directly.
+// Example: "4482718252291588096.us-central1-518090926810.prediction.vertexai.goog"
+const VERTEX_DEDICATED_DNS = process.env.VERTEX_DEDICATED_DNS || "";
+
+function useDedicatedDns() {
+  return VERTEX_DEDICATED_DNS.length > 0;
+}
+
+function getDedicatedDnsUrl(path) {
+  return `https://${VERTEX_DEDICATED_DNS}${path}`;
+}
 
 function getRawPredictUrl() {
   return `https://${VERTEX_LOCATION}-aiplatform.googleapis.com/v1/projects/${VERTEX_PROJECT}/locations/${VERTEX_LOCATION}/endpoints/${VERTEX_ENDPOINT_ID}:rawPredict`;
@@ -33,7 +48,8 @@ function getRawPredictUrl() {
 let server = null;
 
 /**
- * Forward an OpenAI-format request to Vertex AI rawPredict.
+ * Forward an OpenAI-format request to Vertex AI.
+ * Uses dedicated DNS if available, otherwise falls back to rawPredict.
  */
 async function handleChatCompletions(openaiBody) {
   const token = process.env.VERTEX_API_TOKEN;
@@ -41,34 +57,55 @@ async function handleChatCompletions(openaiBody) {
     throw new Error("VERTEX_API_TOKEN not set — vertexAuth.js may not have refreshed yet");
   }
 
-  // Build Vertex AI instances wrapper
-  const instance = { "@requestFormat": "chatCompletions" };
-  for (const [key, value] of Object.entries(openaiBody)) {
-    if (key !== "model") {
-      instance[key] = value;
+  if (useDedicatedDns()) {
+    // ── Dedicated DNS mode: call OpenAI-compatible endpoint directly ──
+    const url = getDedicatedDnsUrl("/v1/chat/completions");
+    console.log(`[vertex-proxy] → Dedicated DNS: ${VERTEX_DEDICATED_DNS}`);
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(openaiBody),
+    });
+
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(`Vertex AI dedicated endpoint failed (${res.status}): ${text}`);
     }
+
+    return JSON.parse(text);
+  } else {
+    // ── rawPredict mode: wrap in instances format ──
+    const instance = { "@requestFormat": "chatCompletions" };
+    for (const [key, value] of Object.entries(openaiBody)) {
+      if (key !== "model") {
+        instance[key] = value;
+      }
+    }
+
+    const vertexBody = JSON.stringify({ instances: [instance] });
+
+    const res = await fetch(getRawPredictUrl(), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: vertexBody,
+    });
+
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(`Vertex AI rawPredict failed (${res.status}): ${text}`);
+    }
+
+    // Unwrap: Vertex AI wraps the response in {"predictions": {...}}
+    const parsed = JSON.parse(text);
+    return parsed.predictions || parsed;
   }
-
-  const vertexBody = JSON.stringify({ instances: [instance] });
-
-  const res = await fetch(getRawPredictUrl(), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: vertexBody,
-  });
-
-  const text = await res.text();
-
-  if (!res.ok) {
-    throw new Error(`Vertex AI rawPredict failed (${res.status}): ${text}`);
-  }
-
-  // Unwrap: Vertex AI wraps the response in {"predictions": {...}}
-  const parsed = JSON.parse(text);
-  return parsed.predictions || parsed;
 }
 
 /**
@@ -146,7 +183,11 @@ export function startVertexProxy() {
     server.listen(VERTEX_PROXY_PORT, "127.0.0.1", () => {
       const baseUrl = `http://127.0.0.1:${VERTEX_PROXY_PORT}/v1`;
       console.log(`[vertex-proxy] Listening on ${baseUrl}`);
-      console.log(`[vertex-proxy] Forwarding to Vertex AI endpoint: ${VERTEX_ENDPOINT_ID}`);
+      if (useDedicatedDns()) {
+        console.log(`[vertex-proxy] Mode: DEDICATED DNS → ${VERTEX_DEDICATED_DNS}`);
+      } else {
+        console.log(`[vertex-proxy] Mode: rawPredict → endpoint ${VERTEX_ENDPOINT_ID}`);
+      }
       resolve(baseUrl);
     });
 
