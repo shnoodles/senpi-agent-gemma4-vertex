@@ -333,10 +333,9 @@ function patchOpenClawJson() {
     merged.models.providers.vertex = merged.models.providers.vertex || {
       baseUrl: proxyUrl,
       apiKey: "proxy-handles-auth",
-      api: "openai-completions",
-      capabilities: { supportsTools: true },
+      api: "openai-responses",
       models: [
-        { id: "gemma-4-31b-it", name: "Gemma 4 31B IT (Vertex AI)", reasoning: false, contextWindow: 128000, maxTokens: 8192, capabilities: { supportsTools: true } },
+        { id: "gemma-4-31b-it", name: "Gemma 4 31B IT (Vertex AI)", reasoning: false, contextWindow: 128000, maxTokens: 8192 },
       ],
     };
     console.log(`[bootstrap] Vertex AI provider configured via local proxy: ${proxyUrl}`);
