@@ -69,6 +69,15 @@ async function handleChatCompletions(openaiBody) {
   const startTime = Date.now();
   console.log(`[vertex-proxy] → rawPredict: ${shortUrl}`);
   console.log(`[vertex-proxy] Request keys: ${Object.keys(instance).join(", ")}`);
+  // Debug: log tool presence
+  if (instance.tools) {
+    console.log(`[vertex-proxy] Tools: ${instance.tools.length} function(s): ${instance.tools.map(t => t?.function?.name || "?").join(", ")}`);
+  } else {
+    console.log(`[vertex-proxy] Tools: NONE (no tools in request)`);
+  }
+  if (instance.tool_choice) {
+    console.log(`[vertex-proxy] tool_choice: ${JSON.stringify(instance.tool_choice)}`);
+  }
 
   // 120s timeout to avoid infinite hangs
   const controller = new AbortController();
@@ -126,7 +135,8 @@ async function handleChatCompletions(openaiBody) {
     }
     const firstContent = result.choices[0]?.message?.content || "";
     const hasTool = !!result.choices[0]?.message?.tool_calls;
-    console.log(`[vertex-proxy] ✓ ${elapsed}s | tools=${hasTool} | content=${firstContent.slice(0, 80).replace(/\n/g, "\\n")}...`);
+    const toolNames = result.choices[0]?.message?.tool_calls?.map(t => t.function?.name).join(", ") || "";
+    console.log(`[vertex-proxy] ✓ ${elapsed}s | finish=${result.choices[0]?.finish_reason} | tools=${hasTool}${toolNames ? ` [${toolNames}]` : ""} | content=${firstContent.slice(0, 80).replace(/\n/g, "\\n")}...`);
   } else {
     console.log(`[vertex-proxy] ✓ ${elapsed}s | unexpected shape: ${Object.keys(result).join(",")}`);
   }
