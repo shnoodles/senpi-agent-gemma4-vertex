@@ -113,7 +113,7 @@ app.get("/debug/mcp-config", (_req, res) => {
       configDirContents,
       stateDirContents,
       ocConfigModels: ocConfig?.models,
-      ocConfigMcpServers: ocConfig?.mcpServers || "not set in main config",
+      ocConfigMcp: ocConfig?.mcp || "not set in main config",
       envSenpiToken: process.env.SENPI_AUTH_TOKEN ? maskToken(process.env.SENPI_AUTH_TOKEN) : "(not set)",
     });
   } catch(e) {
