@@ -205,6 +205,9 @@ export function startVertexProxy() {
 
       const url = req.url || "";
 
+      // Log every request for debugging
+      console.log(`[vertex-proxy] ${req.method} ${url}`);
+
       // GET /v1/models
       if (req.method === "GET" && url.includes("/models")) {
         res.writeHead(200);
@@ -248,9 +251,12 @@ export function startVertexProxy() {
         return;
       }
 
-      // Fallback
+      // Catch-all: log unhandled routes with body for debugging
+      let fallbackBody = "";
+      for await (const chunk of req) fallbackBody += chunk;
+      console.log(`[vertex-proxy] UNHANDLED ${req.method} ${url} body=${fallbackBody.slice(0, 500)}`);
       res.writeHead(404);
-      res.end(JSON.stringify({ error: "Not found" }));
+      res.end(JSON.stringify({ error: "Not found", path: url }));
     });
 
     server.listen(VERTEX_PROXY_PORT, "127.0.0.1", () => {
