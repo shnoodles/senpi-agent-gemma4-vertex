@@ -237,6 +237,15 @@ export function startVertexProxy() {
           const toolNames = (openaiRequest.tools || []).map(t => t?.function?.name || "?");
           const msgCount = (openaiRequest.messages || []).length;
           const lastMsg = openaiRequest.messages?.[msgCount - 1];
+          // Extract what tool was called (from assistant messages with tool_calls)
+          const toolCallsMade = [];
+          for (const m of (openaiRequest.messages || [])) {
+            if (m.role === "assistant" && m.tool_calls) {
+              for (const tc of m.tool_calls) {
+                toolCallsMade.push({ name: tc.function?.name, args: tc.function?.arguments?.slice(0, 100) });
+              }
+            }
+          }
           logRequest({
             type: "chat_completions",
             model: openaiRequest.model,
@@ -247,6 +256,7 @@ export function startVertexProxy() {
             messageCount: msgCount,
             lastMessageRole: lastMsg?.role,
             lastMessagePreview: typeof lastMsg?.content === "string" ? lastMsg.content.slice(0, 200) : JSON.stringify(lastMsg?.content)?.slice(0, 200),
+            toolCallsMade,
             hasStore: !!openaiRequest.store,
             requestKeys: Object.keys(openaiRequest),
           });
