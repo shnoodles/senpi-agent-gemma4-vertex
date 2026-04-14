@@ -83,6 +83,12 @@ app.get(
   controlUiHandler
 );
 
+// Debug endpoint: proxy request logs (for diagnosing tool calling issues)
+import { getRequestLog } from "./lib/vertexProxy.js";
+app.get("/debug/proxy-logs", (_req, res) => {
+  res.json({ logs: getRequestLog(), count: getRequestLog().length });
+});
+
 // Everything else → proxy to gateway (with auth and onboarding redirect)
 app.use(catchAllMiddleware);
 

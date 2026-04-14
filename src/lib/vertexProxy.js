@@ -20,6 +20,17 @@ import http from "node:http";
 
 const VERTEX_PROXY_PORT = parseInt(process.env.VERTEX_PROXY_PORT || "7199", 10);
 
+// Circular buffer for request/response logging (last 20 requests)
+const REQUEST_LOG = [];
+const MAX_LOG_ENTRIES = 20;
+function logRequest(entry) {
+  REQUEST_LOG.push({ ...entry, timestamp: new Date().toISOString() });
+  if (REQUEST_LOG.length > MAX_LOG_ENTRIES) REQUEST_LOG.shift();
+}
+export function getRequestLog() {
+  return REQUEST_LOG;
+}
+
 // Vertex AI endpoint config
 const VERTEX_PROJECT = process.env.VERTEX_PROJECT || "vertex-test-492617";
 const VERTEX_LOCATION = process.env.VERTEX_LOCATION || "us-central1";
@@ -222,6 +233,23 @@ export function startVertexProxy() {
 
         try {
           const openaiRequest = JSON.parse(body);
+          // Log the incoming request for debugging
+          const toolNames = (openaiRequest.tools || []).map(t => t?.function?.name || "?");
+          const msgCount = (openaiRequest.messages || []).length;
+          const lastMsg = openaiRequest.messages?.[msgCount - 1];
+          logRequest({
+            type: "chat_completions",
+            model: openaiRequest.model,
+            stream: !!openaiRequest.stream,
+            toolCount: toolNames.length,
+            toolNames,
+            tool_choice: openaiRequest.tool_choice || null,
+            messageCount: msgCount,
+            lastMessageRole: lastMsg?.role,
+            lastMessagePreview: typeof lastMsg?.content === "string" ? lastMsg.content.slice(0, 200) : JSON.stringify(lastMsg?.content)?.slice(0, 200),
+            hasStore: !!openaiRequest.store,
+            requestKeys: Object.keys(openaiRequest),
+          });
           const { result, wantsStream } = await handleChatCompletions(openaiRequest);
 
           if (wantsStream) {
