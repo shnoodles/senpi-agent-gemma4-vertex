@@ -333,7 +333,7 @@ function patchOpenClawJson() {
     merged.models.providers.vertex = merged.models.providers.vertex || {
       baseUrl: proxyUrl,
       apiKey: "proxy-handles-auth",
-      api: "openai-responses",
+      api: "openai-completions",
       models: [
         { id: "gemma-4-31b-it", name: "Gemma 4 31B IT (Vertex AI)", reasoning: false, contextWindow: 128000, maxTokens: 8192 },
       ],
