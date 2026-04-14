@@ -126,7 +126,10 @@ function patchOpenClawJson() {
   const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
 
   // Remove any invalid keys that would cause gateway startup to fail.
+  // mcpServers is not a valid openclaw.json key (was from an older convention).
+  // mcp is only supported in newer OpenClaw versions (not v2026.2.22-2).
   delete cfg.mcpServers;
+  delete cfg.mcp;
 
   // Union with existing allow so user-installed plugins stay permitted (deepMerge replaces arrays).
   const existingPluginAllow = Array.isArray(cfg.plugins?.allow)
@@ -253,29 +256,8 @@ function patchOpenClawJson() {
         },
       },
     },
-    // Register Senpi MCP server so OpenClaw discovers it and exposes tools to the model.
-    // This is the authoritative config — mcporter.json is only for the mcporter CLI health check.
-    mcp: (() => {
-      const senpiToken = resolveSenpiToken();
-      if (!senpiToken) return undefined;
-      const mcpUrl = process.env.SENPI_MCP_URL || "https://mcp.dev.senpi.ai/mcp";
-      return {
-        servers: {
-          senpi: {
-            command: "npx",
-            args: [
-              "mcp-remote",
-              mcpUrl,
-              "--header",
-              `Authorization: Bearer \${SENPI_AUTH_TOKEN}`,
-            ],
-            env: {
-              SENPI_AUTH_TOKEN: senpiToken,
-            },
-          },
-        },
-      };
-    })(),
+    // MCP servers are registered via mcporter.json + mcporter skill (not the openclaw.json mcp key,
+    // which is unsupported in OpenClaw v2026.2.22). See writeMcporterConfig() below.
   };
 
   const merged = deepMerge(cfg, patch);
