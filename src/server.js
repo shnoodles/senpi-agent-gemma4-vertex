@@ -3,6 +3,7 @@
  */
 
 import fs from "node:fs";
+import path from "node:path";
 
 import express from "express";
 import {
@@ -83,10 +84,33 @@ app.get(
   controlUiHandler
 );
 
-// Debug endpoint: proxy request logs (for diagnosing tool calling issues)
+// Debug endpoints: proxy request logs and MCP config
 import { getRequestLog } from "./lib/vertexProxy.js";
+import { STATE_DIR } from "./lib/config.js";
 app.get("/debug/proxy-logs", (_req, res) => {
   res.json({ logs: getRequestLog(), count: getRequestLog().length });
+});
+app.get("/debug/mcp-config", (_req, res) => {
+  try {
+    const mcporterPath = path.join(STATE_DIR, "config", "mcporter.json");
+    const configPath = path.join(STATE_DIR, "config", "openclaw.json");
+    const mcporter = fs.existsSync(mcporterPath) ? JSON.parse(fs.readFileSync(mcporterPath, "utf8")) : "FILE NOT FOUND";
+    const ocConfig = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, "utf8")) : "FILE NOT FOUND";
+    // Mask tokens
+    const maskToken = (t) => t ? `${t.slice(0, 6)}...${t.slice(-4)} (${t.length} chars)` : "(empty)";
+    if (mcporter?.mcpServers?.senpi?.env?.SENPI_AUTH_TOKEN) {
+      mcporter.mcpServers.senpi.env.SENPI_AUTH_TOKEN = maskToken(mcporter.mcpServers.senpi.env.SENPI_AUTH_TOKEN);
+    }
+    res.json({
+      mcporterPath,
+      mcporter,
+      ocConfigAgents: ocConfig?.agents,
+      ocConfigModels: ocConfig?.models,
+      envSenpiToken: process.env.SENPI_AUTH_TOKEN ? maskToken(process.env.SENPI_AUTH_TOKEN) : "(not set)",
+    });
+  } catch(e) {
+    res.json({ error: e.message });
+  }
 });
 
 // Everything else → proxy to gateway (with auth and onboarding redirect)
