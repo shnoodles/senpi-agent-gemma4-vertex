@@ -93,9 +93,15 @@ app.get("/debug/proxy-logs", (_req, res) => {
 app.get("/debug/mcp-config", (_req, res) => {
   try {
     const mcporterPath = path.join(STATE_DIR, "config", "mcporter.json");
-    const configPath = path.join(STATE_DIR, "config", "openclaw.json");
+    const ocConfigPath = path.join(STATE_DIR, "openclaw.json");
+    const configDir = path.join(STATE_DIR, "config");
     const mcporter = fs.existsSync(mcporterPath) ? JSON.parse(fs.readFileSync(mcporterPath, "utf8")) : "FILE NOT FOUND";
-    const ocConfig = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, "utf8")) : "FILE NOT FOUND";
+    const ocConfig = fs.existsSync(ocConfigPath) ? JSON.parse(fs.readFileSync(ocConfigPath, "utf8")) : "FILE NOT FOUND";
+    // Check directory existence
+    const stateExists = fs.existsSync(STATE_DIR);
+    const configDirExists = fs.existsSync(configDir);
+    const configDirContents = configDirExists ? fs.readdirSync(configDir) : "DIR NOT FOUND";
+    const stateDirContents = stateExists ? fs.readdirSync(STATE_DIR) : "DIR NOT FOUND";
     // Mask tokens
     const maskToken = (t) => t ? `${t.slice(0, 6)}...${t.slice(-4)} (${t.length} chars)` : "(empty)";
     if (mcporter?.mcpServers?.senpi?.env?.SENPI_AUTH_TOKEN) {
@@ -104,10 +110,36 @@ app.get("/debug/mcp-config", (_req, res) => {
     res.json({
       mcporterPath,
       mcporter,
-      ocConfigAgents: ocConfig?.agents,
+      configDirContents,
+      stateDirContents,
       ocConfigModels: ocConfig?.models,
+      ocConfigMcpServers: ocConfig?.mcpServers || "not set in main config",
       envSenpiToken: process.env.SENPI_AUTH_TOKEN ? maskToken(process.env.SENPI_AUTH_TOKEN) : "(not set)",
     });
+  } catch(e) {
+    res.json({ error: e.message, stack: e.stack });
+  }
+});
+// POST to manually create mcporter.json
+app.post("/debug/fix-mcp", (_req, res) => {
+  try {
+    const configDir = path.join(STATE_DIR, "config");
+    if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+    const mcporterPath = path.join(configDir, "mcporter.json");
+    const senpiToken = process.env.SENPI_AUTH_TOKEN || "";
+    const mcpUrl = process.env.SENPI_MCP_URL || "https://mcp.dev.senpi.ai/mcp";
+    const config = {
+      mcpServers: {
+        senpi: {
+          command: "npx",
+          args: ["mcp-remote", mcpUrl, "--header", "Authorization: Bearer ${SENPI_AUTH_TOKEN}"],
+          env: { SENPI_AUTH_TOKEN: senpiToken },
+        }
+      },
+      imports: [],
+    };
+    fs.writeFileSync(mcporterPath, JSON.stringify(config, null, 2));
+    res.json({ ok: true, wrote: mcporterPath, note: "Restart gateway to pick up new MCP config" });
   } catch(e) {
     res.json({ error: e.message });
   }
