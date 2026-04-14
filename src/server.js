@@ -120,30 +120,26 @@ app.get("/debug/mcp-config", (_req, res) => {
     res.json({ error: e.message, stack: e.stack });
   }
 });
-// POST to manually create mcporter.json and restart gateway
+// POST to inject Senpi MCP into openclaw.json and restart gateway
 app.post("/debug/fix-mcp", async (_req, res) => {
   try {
-    const configDir = path.join(STATE_DIR, "config");
-    if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
-    const mcporterPath = path.join(configDir, "mcporter.json");
+    const ocPath = path.join(STATE_DIR, "openclaw.json");
+    const cfg = JSON.parse(fs.readFileSync(ocPath, "utf8"));
     const senpiToken = process.env.SENPI_AUTH_TOKEN || "";
     const mcpUrl = process.env.SENPI_MCP_URL || "https://mcp.dev.senpi.ai/mcp";
-    const config = {
-      mcpServers: {
-        senpi: {
-          command: "npx",
-          args: ["mcp-remote", mcpUrl, "--header", "Authorization: Bearer ${SENPI_AUTH_TOKEN}"],
-          env: { SENPI_AUTH_TOKEN: senpiToken },
-        }
-      },
-      imports: [],
+    cfg.mcp = cfg.mcp || {};
+    cfg.mcp.servers = cfg.mcp.servers || {};
+    cfg.mcp.servers.senpi = {
+      command: "npx",
+      args: ["mcp-remote", mcpUrl, "--header", "Authorization: Bearer ${SENPI_AUTH_TOKEN}"],
+      env: { SENPI_AUTH_TOKEN: senpiToken },
     };
-    fs.writeFileSync(mcporterPath, JSON.stringify(config, null, 2));
-    // Also restart gateway to pick up new MCP config
-    const { restartGateway } = await import("./gateway.js");
+    fs.writeFileSync(ocPath, JSON.stringify(cfg, null, 2));
+    // Restart gateway to pick up new MCP config
+    const { restartGateway: rg } = await import("./gateway.js");
     const gatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN || "";
-    await restartGateway(gatewayToken);
-    res.json({ ok: true, wrote: mcporterPath, gatewayRestarted: true });
+    await rg(gatewayToken);
+    res.json({ ok: true, wrote: ocPath, mcpServers: Object.keys(cfg.mcp.servers), gatewayRestarted: true });
   } catch(e) {
     res.json({ error: e.message });
   }

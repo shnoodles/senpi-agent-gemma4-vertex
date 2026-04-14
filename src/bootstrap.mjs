@@ -253,6 +253,29 @@ function patchOpenClawJson() {
         },
       },
     },
+    // Register Senpi MCP server so OpenClaw discovers it and exposes tools to the model.
+    // This is the authoritative config — mcporter.json is only for the mcporter CLI health check.
+    mcp: (() => {
+      const senpiToken = resolveSenpiToken();
+      if (!senpiToken) return undefined;
+      const mcpUrl = process.env.SENPI_MCP_URL || "https://mcp.dev.senpi.ai/mcp";
+      return {
+        servers: {
+          senpi: {
+            command: "npx",
+            args: [
+              "mcp-remote",
+              mcpUrl,
+              "--header",
+              `Authorization: Bearer \${SENPI_AUTH_TOKEN}`,
+            ],
+            env: {
+              SENPI_AUTH_TOKEN: senpiToken,
+            },
+          },
+        },
+      };
+    })(),
   };
 
   const merged = deepMerge(cfg, patch);
