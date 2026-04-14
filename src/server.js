@@ -120,8 +120,8 @@ app.get("/debug/mcp-config", (_req, res) => {
     res.json({ error: e.message, stack: e.stack });
   }
 });
-// POST to manually create mcporter.json
-app.post("/debug/fix-mcp", (_req, res) => {
+// POST to manually create mcporter.json and restart gateway
+app.post("/debug/fix-mcp", async (_req, res) => {
   try {
     const configDir = path.join(STATE_DIR, "config");
     if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
@@ -139,7 +139,11 @@ app.post("/debug/fix-mcp", (_req, res) => {
       imports: [],
     };
     fs.writeFileSync(mcporterPath, JSON.stringify(config, null, 2));
-    res.json({ ok: true, wrote: mcporterPath, note: "Restart gateway to pick up new MCP config" });
+    // Also restart gateway to pick up new MCP config
+    const { restartGateway } = await import("./gateway.js");
+    const gatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN || "";
+    await restartGateway(gatewayToken);
+    res.json({ ok: true, wrote: mcporterPath, gatewayRestarted: true });
   } catch(e) {
     res.json({ error: e.message });
   }
